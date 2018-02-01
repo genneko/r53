@@ -70,7 +70,14 @@ _unlock() {
 	trap 1 2 3 11 15
 }
 
-_get_domain (){
+_get_zoneid() {
+	local domain
+	domain=${1:-$DOMAIN}
+	profile=${2:-$PROFILE}
+	aws --profile $profile route53 list-hosted-zones --query 'HostedZones[?Name == `'$domain'.`].Id' --output text | sed 's/\/hostedzone\///'
+}
+
+_get_domain() {
 	local id
 	id=${1:-$ZONEID}
 	profile=${2:-$PROFILE}
@@ -291,19 +298,19 @@ configure() {
 	done
 
 	while true; do
-		read -p "Hosted Zone ID [$ZONEID]: " zoneid
-		if [ -n "${zoneid:=$ZONEID}" ]; then
+		read -p "Hosted Zone Domain [$DOMAIN]: " domain
+		if [ -n "${domain:=$DOMAIN}" ]; then
 			break
 		fi
 	done
 
-	if [ -f "$HOME/.r53rc" -a -z "$DOMAIN" ]; then
-		DOMAIN=$(_get_domain $zoneid $profile)
+	if [ -z "$ZONEID" ]; then
+		ZONEID=$(_get_zoneid $domain $profile)
 	fi
 
 	while true; do
-		read -p "Hosted Zone Domain [$DOMAIN]: " domain
-		if [ -n "${domain:=$DOMAIN}" ]; then
+		read -p "Hosted Zone ID [$ZONEID]: " zoneid
+		if [ -n "${zoneid:=$ZONEID}" ]; then
 			break
 		fi
 	done

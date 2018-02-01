@@ -17,6 +17,12 @@ $ git clone https://github.com/genneko/r53.git
 
 ## Initial Setup
 Run 'r53 configure' and input your IAM account and a hosted zone information. They will be written in your $HOME/.r53rc file.
+```
+$ ./r53 configure
+AWS CLI Profile [default]: dns
+Hosted Zone Domain []: example.jp
+Hosted Zone ID [XXXXXXXXXXXXXX]:
+```
 
 ## Usage
 ```
