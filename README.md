@@ -20,7 +20,7 @@ Run 'r53 configure' and input your IAM account and a hosted zone information. Th
 ```
 $ ./r53 configure
 AWS CLI Profile [default]: dns
-Hosted Zone Domain []: example.jp
+Hosted Zone Domain []: example.com
 Hosted Zone ID [XXXXXXXXXXXXXX]:
 ```
 
