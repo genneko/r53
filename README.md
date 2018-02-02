@@ -5,7 +5,7 @@ AWS Route 53 DNS Record Updater
 * awscli
 * jq
 * an IAM account which has the following privileges.
-  + ChangeResourceRecordSets action (on your hosted zone)
+  + ChangeResourceRecordSets (on your hosted zone)
   + ListResourceRecordSets (on your hosted zone)
   + GetChange (on route53)
   + GetHostedZone (on your hosted zones)
@@ -23,31 +23,41 @@ $ git clone https://github.com/genneko/r53.git
 ```
 
 ## Initial Setup
-Run 'r53 configure' and input your awscli profile and a hosted domain information (Zone ID is automatically queried using a input domain name). They are written to your $HOME/.r53rc file and will be used from now on.
+Run 'r53 configure' and input your r53 profile name, awscli profile and a hosted domain information (Zone ID is automatically queried using a input domain name). They are written to your $HOME/.r53rc file and will be used from now on.
 ```
-$ ./r53 configure
+$ r53 configure
+r53 Profile [default]: 
 AWS CLI Profile [default]: dns
 Hosted Zone Domain []: example.com
 Hosted Zone ID [XXXXXXXXXXXXXX]:
 ```
 
+You can create multiple configurations identified by an r53 profile name. Specify -p &lt;prof&gt; option if you want to use an r53 profile other than 'default'.
+```
+$ r53 -p cats update mike 192.0.2.108
+$ r53 -p cats list -mc
+```
+
 ## Usage
 ```
-    r53 [opts] update [-t <type>] [-T <ttl>] [-C <comment>] <name> <value>
-    r53 [opts] delete [-t <type>] [-C <comment>] <name>
-    r53 [opts] get [-mc] [-t <type>] <name>
-    r53 [opts] list [-mc]
-    r53 [opts] configure
+  r53 [-p <prof>] update [-t <type>] [-T <ttl>] [-C <comment>] <name> <value>
+  r53 [-p <prof>] delete [-t <type>] [-C <comment>] <name>
+  r53 [-p <prof>] show [-mc] [-t <type>] <name>
+  r53 [-p <prof>] list [-mc]
+  r53 [-p <prof>] configure [-n]
+  r53 [-p <prof>] show-config
+  r53 [-p <prof>] test-name <name>
 
-    Default values:
-      -t <type> = A
-      -T <ttl> = 60
-      -c <comment> = by r53 on YYYY-mm-dd HH:MM:SS
+  Flags:
+    -m: minify output by omitting some fields for human-readability.
+    -c: instruct jq to make output compact.
+    -n: do not query zone id by input zone domain.
 
-    The following global opts are available:
-      -d <domain>: used to complete <name> as required
-      -p <profile>: passed to awscli as --profile <profile>
-      -z <zoneid>: passed to awscli as --hosted-zone-id <zoneid>
+  Default values:
+    -p = default
+    -t <type> = A
+    -T <ttl> = 60
+    -c <comment> = by r53 on YYYY-mm-dd HH:MM:SS
 ```
 
 * Add or update (UPSERT = UPDATE or INSERT) an 'A' record.

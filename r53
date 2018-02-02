@@ -29,29 +29,27 @@ usage_exit() {
 
 USAGE="AWS Route 53 DNS Record Updater
 usage:
-    $prog [opts] update [-t <type>] [-T <ttl>] [-C <comment>] <name> <value>
-    $prog [opts] delete [-t <type>] [-C <comment>] <name>
-    $prog [opts] get [-mc] [-t <type>] <name>
-    $prog [opts] list [-mc]
-    $prog [opts] configure
+  $prog [-p <prof>] update [-t <type>] [-T <ttl>] [-C <comment>] <name> <value>
+  $prog [-p <prof>] delete [-t <type>] [-C <comment>] <name>
+  $prog [-p <prof>] show [-mc] [-t <type>] <name>
+  $prog [-p <prof>] list [-mc]
+  $prog [-p <prof>] configure [-n]
+  $prog [-p <prof>] show-config
+  $prog [-p <prof>] test-name <name>
 
-    Default values:
-      -t <type> = A
-      -T <ttl> = 60
-      -c <comment> = by $prog on YYYY-mm-dd HH:MM:SS
+  Flags:
+    -m: minify output by omitting some fields for human-readability.
+    -c: instruct jq to make output compact.
+    -n: do not query zone id by input zone domain.
 
-    The following global opts are available:
-      -d <domain>: used to complete <name> as required
-      -p <profile>: passed to awscli as --profile <profile>
-      -z <zoneid>: passed to awscli as --hosted-zone-id <zoneid>
+  Default values:
+    -p = default
+    -t <type> = A
+    -T <ttl> = 60
+    -c <comment> = by $prog on YYYY-mm-dd HH:MM:SS
 " # END-QUOTE
 
-test -f "$HOME/.r53rc" && . "$HOME/.r53rc"
-
 LOCKFILE=$prog.lck
-PROFILE="${AWSCLI_PROFILE:-default}"
-ZONEID="${HOSTED_ZONE_ID}"
-DOMAIN="${HOSTED_ZONE_DOMAIN}"
 DEFAULT_TYPE=A
 DEFAULT_TTL=60
 DEFAULT_COMMENT="by $prog on $(date '+%Y-%m-%d %H:%M:%S')"
@@ -70,30 +68,56 @@ _unlock() {
 	trap 1 2 3 11 15
 }
 
+_get_ini_section() {
+        local inifile section
+        inifile=$1
+        section=$2
+        if [ -r "$inifile" -a -n "$section" ]; then
+                cat "$inifile" | sed -r -n "
+                        /^\[$section\]/,/^(\$|\[)/{
+                                /^[A-Z]/p
+                        }
+                " # END-QUOTE
+        fi
+}
+
+_delete_ini_section() {
+        local inifile section
+        inifile=$1
+        section=$2
+        if [ -r "$inifile" -a -n "$section" ]; then
+                cat "$inifile" | sed -r "
+                        /^\[$section\]/,/^(\$|\[)/{
+				/^(\[$section|^[A-Z])/d
+                        }
+                " # END-QUOTE
+        fi
+}
+
 _get_zoneid() {
 	local domain
-	domain=${1:-$DOMAIN}
-	profile=${2:-$PROFILE}
+	domain=${1:-$HOSTED_ZONE_DOMAIN}
+	profile=${2:-$AWSCLI_PROFILE}
 	aws --profile $profile route53 list-hosted-zones --query 'HostedZones[?Name == `'$domain'.`].Id' --output text | sed 's/\/hostedzone\///'
 }
 
 _get_domain() {
 	local id
-	id=${1:-$ZONEID}
-	profile=${2:-$PROFILE}
+	id=${1:-$HOSTED_ZONE_ID}
+	profile=${2:-$AWSCLI_PROFILE}
 	aws --profile $profile route53 get-hosted-zone --id $id | jq -r .HostedZone.Name | sed -r 's/\.+$//'
 }
 
 _qualify() {
 	local name fqdn
 	name=$1
-	if [ -n "$DOMAIN" ]; then
+	if [ -n "$HOSTED_ZONE_DOMAIN" ]; then
 		if [ "$name" = "@" ]; then
-			fqdn="$DOMAIN"
-		elif echo "$name" | egrep -q "$DOMAIN"'\.*$'; then
+			fqdn="$HOSTED_ZONE_DOMAIN"
+		elif echo "$name" | egrep -q "$HOSTED_ZONE_DOMAIN"'\.*$'; then
 			fqdn="$name"
 		else
-			fqdn=$(echo "$name" | sed -r 's/\.+$//').$DOMAIN
+			fqdn=$(echo "$name" | sed -r 's/\.+$//').$HOSTED_ZONE_DOMAIN
 		fi
 	else
 		fqdn=""
@@ -106,7 +130,7 @@ _get_change_status() {
 	local changeid
 	changeid=$1
 
-	aws --profile $PROFILE route53 get-change --id "$changeid" | jq -r .ChangeInfo.Status
+	aws --profile $AWSCLI_PROFILE route53 get-change --id "$changeid" | jq -r .ChangeInfo.Status
 }
 
 _wait_for_sync() {
@@ -145,7 +169,7 @@ list() {
 	done
 	shift $(( $OPTIND - 1 ))
 
-	result=$(aws --profile $PROFILE route53 list-resource-record-sets --hosted-zone-id $ZONEID)
+	result=$(aws --profile $AWSCLI_PROFILE route53 list-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID)
 
 	if [ "$minified" = "yes" ]; then
 		echo "$result" | jq $jqopt -r '.ResourceRecordSets | sort_by(.Type, .Name) | .[] | [ .Name, .Type, .TTL, [.ResourceRecords[].Value]]'
@@ -170,12 +194,12 @@ get() {
 	name=$1
 	fqdn=$(_qualify $name)
 	rectype=${rectype:-$DEFAULT_TYPE}
-	if [ -z "$ZONEID" -o -z "$fqdn" -o -z "$rectype" ]; then
-		echoerr "Missing ZONEID ($ZONEID), fqdn ($fqdn) or rectype ($rectype)."
+	if [ -z "$HOSTED_ZONE_ID" -o -z "$fqdn" -o -z "$rectype" ]; then
+		echoerr "Missing HOSTED_ZONE_ID ($HOSTED_ZONE_ID), fqdn ($fqdn) or rectype ($rectype)."
 		return 1
 	fi
 
-	result=$(aws --profile $PROFILE route53 list-resource-record-sets --hosted-zone-id $ZONEID --query "ResourceRecordSets[?Name == '$fqdn' && Type == '$rectype'] | [0]")
+	result=$(aws --profile $AWSCLI_PROFILE route53 list-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID --query "ResourceRecordSets[?Name == '$fqdn' && Type == '$rectype'] | [0]")
 	
 	if [ "$minified" = "yes" ]; then
 		echo "$result" | jq $jqopt -r '[ .Name, .Type, .TTL, [.ResourceRecords[].Value]]'
@@ -200,8 +224,8 @@ delete() {
 	fqdn=$(_qualify $name)
 	rectype=${rectype:-$DEFAULT_TYPE}
 	comment=${comment:-"DELETE $fqdn $rectype $DEFAULT_COMMENT"}
-	if [ -z "$ZONEID" -o -z "$fqdn" -o -z "$rectype" ]; then
-		echoerr "Missing ZONEID ($ZONEID), fqdn ($fqdn) or rectype ($rectype)."
+	if [ -z "$HOSTED_ZONE_ID" -o -z "$fqdn" -o -z "$rectype" ]; then
+		echoerr "Missing HOSTED_ZONE_ID ($HOSTED_ZONE_ID), fqdn ($fqdn) or rectype ($rectype)."
 		return 1
 	fi
 
@@ -224,7 +248,7 @@ delete() {
 EOB
 )
 
-	result=$(aws --profile $PROFILE route53 change-resource-record-sets --hosted-zone-id $ZONEID --change-batch "$json" | jq -c .)
+	result=$(aws --profile $AWSCLI_PROFILE route53 change-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID --change-batch "$json" | jq -c .)
 	echo "$result"
 
 	changeid=$(echo $result | jq -r .ChangeInfo.Id)
@@ -250,8 +274,8 @@ upsert() {
 	rectype=${rectype:-$DEFAULT_TYPE}
 	ttl=${ttl:-$DEFAULT_TTL}
 	comment=${comment:-"UPSERT $fqdn $rectype [$value] $DEFAULT_COMMENT"}
-	if [ -z "$ZONEID" -o -z "$fqdn" -o -z "$value" ]; then
-		echoerr "Missing ZONEID ($ZONEID), fqdn ($fqdn) or rectype ($rectype)."
+	if [ -z "$HOSTED_ZONE_ID" -o -z "$fqdn" -o -z "$value" ]; then
+		echoerr "Missing HOSTED_ZONE_ID ($HOSTED_ZONE_ID), fqdn ($fqdn) or rectype ($rectype)."
 		return 1
 	fi
 
@@ -281,7 +305,7 @@ upsert() {
 EOB
 )
 
-	result=$(aws --profile $PROFILE route53 change-resource-record-sets --hosted-zone-id $ZONEID --change-batch "$json" | jq -c .)
+	result=$(aws --profile $AWSCLI_PROFILE route53 change-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID --change-batch "$json" | jq -c .)
 	echo "$result"
 
 	changeid=$(echo $result | jq -r .ChangeInfo.Id)
@@ -289,28 +313,44 @@ EOB
 }
 
 configure() {
-	local zoneid profile domain yesno
+	local OPTIND noquery r53_profile zoneid awscli_profile domain yesno currcontents
+	while getopts "n" opt
+	do
+		case "$opt" in
+			n) noquery="yes" ;;
+			*) ;;
+		esac
+	done
+	shift $(( $OPTIND - 1 ))
+
 	while true; do
-		read -p "AWS CLI Profile [$PROFILE]: " profile
-		if [ -n "${profile:=$PROFILE}" ]; then
+		read -p "r53 Profile [$R53_PROFILE]: " r53_profile
+		if [ -n "${r53_profile:=$R53_PROFILE}" ]; then
 			break
 		fi
 	done
 
 	while true; do
-		read -p "Hosted Zone Domain [$DOMAIN]: " domain
-		if [ -n "${domain:=$DOMAIN}" ]; then
+		read -p "AWS CLI Profile [$AWSCLI_PROFILE]: " awscli_profile
+		if [ -n "${awscli_profile:=$AWSCLI_PROFILE}" ]; then
 			break
 		fi
 	done
 
-	if [ -z "$ZONEID" ]; then
-		ZONEID=$(_get_zoneid $domain $profile)
+	while true; do
+		read -p "Hosted Zone Domain [$HOSTED_ZONE_DOMAIN]: " domain
+		if [ -n "${domain:=$HOSTED_ZONE_DOMAIN}" ]; then
+			break
+		fi
+	done
+
+	if [ -z "$HOSTED_ZONE_ID" -a "$noquery" != "yes" ]; then
+		HOSTED_ZONE_ID=$(_get_zoneid $domain $awscli_profile)
 	fi
 
 	while true; do
-		read -p "Hosted Zone ID [$ZONEID]: " zoneid
-		if [ -n "${zoneid:=$ZONEID}" ]; then
+		read -p "Hosted Zone ID [$HOSTED_ZONE_ID]: " zoneid
+		if [ -n "${zoneid:=$HOSTED_ZONE_ID}" ]; then
 			break
 		fi
 	done
@@ -320,25 +360,39 @@ configure() {
 		if echo "$yesno" | egrep -v '^[yY]' > /dev/null 2>&1; then
 			echoerr "Do nothing."
 		fi
+		currcontents=$(_delete_ini_section "$HOME/.r53rc" "$r53_profile")
 	fi
 
 	cat <<EOB> $HOME/.r53rc
-AWSCLI_PROFILE=$profile
+$currcontents
+[$r53_profile]
+AWSCLI_AWSCLI_PROFILE=$awscli_profile
 HOSTED_ZONE_ID=$zoneid
 HOSTED_ZONE_DOMAIN=$domain
 EOB
 }
 
-while getopts "d:p:z:" opt
+#
+# Main
+#
+R53_PROFILE=default
+AWSCLI_PROFILE=default
+HOSTED_ZONE_ID=
+HOSTED_ZONE_DOMAIN=
+
+while getopts "p:" opt
 do
 	case "$opt" in
-		d) DOMAIN="${OPTARG:-$DOMAIN}" ;;
-		p) PROFILE="${OPTARG:-$PROFILE}" ;;
-		z) ZONEID="${OPTARG:-$ZONEID}" ;;
+		p) R53_PROFILE="${OPTARG:-$R53_PROFILE}" ;;
 		*) usage_exit ;;
 	esac
 done
 shift $(( $OPTIND - 1 ))
+
+if [ -f "$HOME/.r53rc" ]; then
+	config=$(_get_ini_section "$HOME/.r53rc" "$R53_PROFILE")
+	eval "$config"
+fi
 
 command=$1
 shift
@@ -363,14 +417,17 @@ case "$command" in
 	list)
 		list "$@"
 		;;
-	get)
+	show|get)
 		get "$@"
-		;;
-	testname)
-		_qualify "$1"
 		;;
 	configure)
 		configure "$@"
+		;;
+	show-config)
+		test -f "$HOME/.r53rc" && _get_ini_section "$HOME/.r53rc" "$R53_PROFILE"
+		;;
+	test-name|testname)
+		_qualify "$1"
 		;;
 	*)
 		usage_exit
