@@ -366,7 +366,7 @@ configure() {
 	cat <<EOB> $HOME/.r53rc
 $currcontents
 [$r53_profile]
-AWSCLI_AWSCLI_PROFILE=$awscli_profile
+AWSCLI_PROFILE=$awscli_profile
 HOSTED_ZONE_ID=$zoneid
 HOSTED_ZONE_DOMAIN=$domain
 EOB
