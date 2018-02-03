@@ -29,13 +29,13 @@ usage_exit() {
 
 USAGE="AWS Route 53 DNS Record Updater
 usage:
-  $prog [-p <prof>] update [-t <type>] [-T <ttl>] [-C <comment>] <name> <value>
-  $prog [-p <prof>] delete [-t <type>] [-C <comment>] <name>
-  $prog [-p <prof>] show [-mc] [-t <type>] <name>
-  $prog [-p <prof>] list [-mc]
-  $prog [-p <prof>] configure [-n]
-  $prog [-p <prof>] show-config
-  $prog [-p <prof>] test-name <name>
+  $prog [-f <config>] [-p <prof>] update [-t <type>] [-T <ttl>] [-C <comment>] <name> <value>
+  $prog [-f <config>] [-p <prof>] delete [-t <type>] [-C <comment>] <name>
+  $prog [-f <config>] [-p <prof>] show [-mc] [-t <type>] <name>
+  $prog [-f <config>] [-p <prof>] list [-mc]
+  $prog [-f <config>] [-p <prof>] configure [-n]
+  $prog [-f <config>] [-p <prof>] show-config
+  $prog [-f <config>] [-p <prof>] test-name <name>
 
   Flags:
     -m: minify output by omitting some fields for human-readability.
@@ -43,7 +43,8 @@ usage:
     -n: do not query zone id by input zone domain.
 
   Default values:
-    -p = default
+    -f <config> =  $HOME/.r53rc
+    -p <prof> = default
     -t <type> = A
     -T <ttl> = 60
     -c <comment> = by $prog on YYYY-mm-dd HH:MM:SS
@@ -229,7 +230,7 @@ delete() {
 		return 1
 	fi
 
-	record="$(get -m $fqdn $rectype)"
+	record="$(get -c $fqdn $rectype)"
 	if [ -z "$record" -o "$record" = "null" ]; then
 		echoerr "Couldn't find $fqdn $rectype."
 		return 1
@@ -355,15 +356,15 @@ configure() {
 		fi
 	done
 
-	if [ -f "$HOME/.r53rc" ]; then
-		read -p "Overwrite existing configuration? [N/y]: " yesno
+	if [ -f "$CONFIG_FILE" ]; then
+		read -p "Overwrite existing configuration file '$CONFIG_FILE'? [N/y]: " yesno
 		if echo "$yesno" | egrep -v '^[yY]' > /dev/null 2>&1; then
 			echoerr "Do nothing."
 		fi
-		currcontents=$(_delete_ini_section "$HOME/.r53rc" "$r53_profile")
+		currcontents=$(_delete_ini_section "$CONFIG_FILE" "$r53_profile")
 	fi
 
-	cat <<EOB> $HOME/.r53rc
+	cat <<EOB> $CONFIG_FILE
 $currcontents
 [$r53_profile]
 AWSCLI_PROFILE=$awscli_profile
@@ -375,23 +376,35 @@ EOB
 #
 # Main
 #
+if [ -f "$bindir/r53rc" ]; then
+	CONFIG_FILE="$bindir/r53rc"
+else
+	CONFIG_FILE="$HOME/.r53rc"
+fi
 R53_PROFILE=default
 AWSCLI_PROFILE=default
 HOSTED_ZONE_ID=
 HOSTED_ZONE_DOMAIN=
+AWSCLI_CONFIG_DIR=
 
-while getopts "p:" opt
+while getopts "f:p:" opt
 do
 	case "$opt" in
+		f) CONFIG_FILE="${OPTARG:-$CONFIG_FILE}" ;;
 		p) R53_PROFILE="${OPTARG:-$R53_PROFILE}" ;;
 		*) usage_exit ;;
 	esac
 done
 shift $(( $OPTIND - 1 ))
 
-if [ -f "$HOME/.r53rc" ]; then
-	config=$(_get_ini_section "$HOME/.r53rc" "$R53_PROFILE")
+if [ -f "$CONFIG_FILE" ]; then
+	config=$(_get_ini_section "$CONFIG_FILE" "$R53_PROFILE")
 	eval "$config"
+fi
+
+if [ -n "$AWSCLI_CONFIG_DIR" ]; then
+	export AWS_CONFIG_FILE="$AWSCLI_CONFIG_DIR/config"
+	export AWS_SHARED_CREDENTIALS_FILE="$AWSCLI_CONFIG_DIR/credentials"
 fi
 
 command=$1
@@ -424,7 +437,8 @@ case "$command" in
 		configure "$@"
 		;;
 	show-config)
-		test -f "$HOME/.r53rc" && _get_ini_section "$HOME/.r53rc" "$R53_PROFILE"
+		echo "CONFIG_FILE=$CONFIG_FILE"
+		test -f "$CONFIG_FILE" && _get_ini_section "$CONFIG_FILE" "$R53_PROFILE"
 		;;
 	test-name|testname)
 		_qualify "$1"
