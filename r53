@@ -50,7 +50,7 @@ usage:
     -c <comment> = by $prog on YYYY-mm-dd HH:MM:SS
 " # END-QUOTE
 
-LOCKFILE=$prog.lck
+LOCKFILE=$bindir/$prog.lck
 DEFAULT_TYPE=A
 DEFAULT_TTL=60
 DEFAULT_COMMENT="by $prog on $(date '+%Y-%m-%d %H:%M:%S')"
