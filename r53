@@ -230,7 +230,7 @@ delete() {
 		return 1
 	fi
 
-	record="$(get -c $fqdn $rectype)"
+	record=$(get -c -t $rectype $fqdn)
 	if [ -z "$record" -o "$record" = "null" ]; then
 		echoerr "Couldn't find $fqdn $rectype."
 		return 1
